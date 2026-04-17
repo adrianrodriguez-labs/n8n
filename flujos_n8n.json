@@ -1,0 +1,351 @@
+{
+  "flujos": [
+    {
+      "id": 1,
+      "nombre": "Monitoreo de Ping a Máquinas Virtuales",
+      "descripcion": "Verificar conectividad de máquinas críticas cada 5 minutos",
+      "trigger": "Cron: */5 * * * * * (cada 5 minutos)",
+      "nodos": [
+        {
+          "tipo": "Cron",
+          "nombre": "Trigger Cron",
+          "config": "Intervalo: 5 minutos"
+        },
+        {
+          "tipo": "SSH/PowerShell",
+          "nombre": "Ejecutar Ping",
+          "config": "Comando: ping -c 4 {{ip}}"
+        },
+        {
+          "tipo": "If",
+          "nombre": "Validar Respuesta",
+          "config": "Condición: {{exitCode}} == 0"
+        },
+        {
+          "tipo": "Email",
+          "nombre": "Enviar Alerta",
+          "config": "Si falla: notificar a admin@empresa.com"
+        },
+        {
+          "tipo": "Log",
+          "nombre": "Registrar",
+          "config": "Guardar en BD: machine_status"
+        }
+      ],
+      "impacto": "Detección inmediata de máquinas caídas",
+      "complejidad": "Baja",
+      "requisitos": ["n8n", "SSH/PowerShell", "Email"]
+    },
+    {
+      "id": 2,
+      "nombre": "Alertas de Creación de Usuarios en AD",
+      "descripcion": "Notificar cuando se crea una nueva cuenta de usuario",
+      "trigger": "Polling cada 10 minutos o Webhook desde AD",
+      "nodos": [
+        {
+          "tipo": "Cron/Webhook",
+          "nombre": "Trigger",
+          "config": "Cada 10 minutos o evento real-time"
+        },
+        {
+          "tipo": "PowerShell",
+          "nombre": "Consultar Usuarios Nuevos",
+          "config": "Get-ADUser -Filter {whenCreated -gt última_consulta}"
+        },
+        {
+          "tipo": "Loop",
+          "nombre": "Procesar Cada Usuario",
+          "config": "Enriquecer con información del manager"
+        },
+        {
+          "tipo": "Email",
+          "nombre": "Notificar",
+          "config": "Template HTML con detalles del usuario"
+        },
+        {
+          "tipo": "Database",
+          "nombre": "Auditoría",
+          "config": "Insertar en tabla: user_creations"
+        }
+      ],
+      "impacto": "Trazabilidad de cuentas nuevas",
+      "complejidad": "Media",
+      "requisitos": ["AD 2019", "PowerShell", "Email", "BD"]
+    },
+    {
+      "id": 3,
+      "nombre": "Detección de Escalación de Privilegios",
+      "descripcion": "Alertar cuando se agrega usuario a grupos administrativos",
+      "trigger": "Cada 15 minutos",
+      "nodos": [
+        {
+          "tipo": "Cron",
+          "nombre": "Trigger",
+          "config": "Cada 15 minutos"
+        },
+        {
+          "tipo": "Loop",
+          "nombre": "Iterar Grupos Admin",
+          "config": "Domain Admins, Enterprise Admins, etc."
+        },
+        {
+          "tipo": "PowerShell",
+          "nombre": "Obtener Miembros Actuales",
+          "config": "Get-ADGroupMember -Identity {{grupo}}"
+        },
+        {
+          "tipo": "Database",
+          "nombre": "Comparar con Snapshot",
+          "config": "Detectar miembros nuevos"
+        },
+        {
+          "tipo": "If",
+          "nombre": "¿Hay Cambios?",
+          "config": "¿Miembros nuevos?"
+        },
+        {
+          "tipo": "Email",
+          "nombre": "Alerta Crítica",
+          "config": "Notificar cambios de privilegios"
+        },
+        {
+          "tipo": "Ticket",
+          "nombre": "Crear Ticket",
+          "config": "Para revisión manual si es crítico"
+        }
+      ],
+      "impacto": "Detección de escalación no autorizada",
+      "complejidad": "Alta",
+      "requisitos": ["AD 2019", "Wazuh", "Email", "Sistema Tickets"]
+    },
+    {
+      "id": 4,
+      "nombre": "Detección de Instalación de Software",
+      "descripcion": "Alertar sobre intentos de instalar software no autorizado",
+      "trigger": "Webhook desde Wazuh (real-time)",
+      "nodos": [
+        {
+          "tipo": "Webhook",
+          "nombre": "Recibir Evento Wazuh",
+          "config": "Event ID: 11707 o pattern matching"
+        },
+        {
+          "tipo": "Extract",
+          "nombre": "Extraer Información",
+          "config": "Máquina, Usuario, Software, Hash"
+        },
+        {
+          "tipo": "Database",
+          "nombre": "Buscar en Lista Blanca",
+          "config": "¿Software está aprobado?"
+        },
+        {
+          "tipo": "If",
+          "nombre": "¿No Autorizado?",
+          "config": "Si no está en lista blanca"
+        },
+        {
+          "tipo": "HTTP",
+          "nombre": "Consultar VirusTotal",
+          "config": "API para verificar seguridad"
+        },
+        {
+          "tipo": "If",
+          "nombre": "¿Malicioso?",
+          "config": "Más de 5 detecciones"
+        },
+        {
+          "tipo": "Email/Alert",
+          "nombre": "Notificar",
+          "config": "Alerta a admin y usuario"
+        },
+        {
+          "tipo": "Isolation",
+          "nombre": "Aislar Máquina",
+          "config": "Si crítico: desconectar de red"
+        }
+      ],
+      "impacto": "Prevención de malware",
+      "complejidad": "Muy Alta",
+      "requisitos": ["Wazuh", "VirusTotal API", "Email", "Firewall/Isolate"]
+    },
+    {
+      "id": 5,
+      "nombre": "Alertas de Descargas Sospechosas",
+      "descripcion": "Monitorear descargas de archivos ejecutables",
+      "trigger": "Webhook desde Wazuh (FIM)",
+      "nodos": [
+        {
+          "tipo": "Webhook",
+          "nombre": "Detectar Nuevo Archivo",
+          "config": "En C:\\\\Users\\\\*\\\\Downloads"
+        },
+        {
+          "tipo": "Filter",
+          "nombre": "Filtrar por Extensión",
+          "config": ".exe, .msi, .bat, .ps1, .vbs, .zip"
+        },
+        {
+          "tipo": "Hash",
+          "nombre": "Calcular SHA256",
+          "config": "Hash del archivo"
+        },
+        {
+          "tipo": "HTTP",
+          "nombre": "Consultar VirusTotal",
+          "config": "Buscar hash en VirusTotal"
+        },
+        {
+          "tipo": "If",
+          "nombre": "Resultado VirusTotal",
+          "config": "¿Detecciones > 10?"
+        },
+        {
+          "tipo": "Email",
+          "nombre": "Notificar Usuario",
+          "config": "Archivo descargado es sospechoso"
+        },
+        {
+          "tipo": "Action",
+          "nombre": "Cuarentena (Opcional)",
+          "config": "Mover a carpeta de cuarentena"
+        }
+      ],
+      "impacto": "Prevención de malware",
+      "complejidad": "Media",
+      "requisitos": ["Wazuh FIM", "VirusTotal API", "Email"]
+    }
+  ],
+  "ideas_adicionales": [
+    {
+      "id": 6,
+      "nombre": "Monitoreo de Expiración de Contraseñas",
+      "descripcion": "Alertar 30 días antes de que expire contraseña",
+      "frecuencia": "Diaria",
+      "complejidad": "Baja"
+    },
+    {
+      "id": 7,
+      "nombre": "Sincronización de Usuarios entre Sistemas",
+      "descripcion": "Sincronizar AD con aplicaciones externas",
+      "frecuencia": "Real-time o cada 1 hora",
+      "complejidad": "Media"
+    },
+    {
+      "id": 8,
+      "nombre": "Gestión Automática de Contraseñas de Servicio",
+      "descripcion": "Rotar contraseñas cada 90 días, guardar en Vault",
+      "frecuencia": "Semanal",
+      "complejidad": "Alta"
+    },
+    {
+      "id": 9,
+      "nombre": "Auditoría de Acceso Remoto (RDP)",
+      "descripcion": "Detectar intentos fallidos de login RDP",
+      "frecuencia": "Real-time",
+      "complejidad": "Media"
+    },
+    {
+      "id": 10,
+      "nombre": "Limpieza de Perfiles Inactivos",
+      "descripcion": "Archivar cuentas sin usar >90 días",
+      "frecuencia": "Semanal",
+      "complejidad": "Media"
+    },
+    {
+      "id": 11,
+      "nombre": "Alertas de Uso Anómalo de Banda Ancha",
+      "descripcion": "Detectar consumo sospechoso de red",
+      "frecuencia": "Cada 5 minutos",
+      "complejidad": "Alta"
+    },
+    {
+      "id": 12,
+      "nombre": "Automatización de Parches y Actualizaciones",
+      "descripcion": "Ejecutar Windows Updates en horarios específicos",
+      "frecuencia": "Semanal",
+      "complejidad": "Media"
+    },
+    {
+      "id": 13,
+      "nombre": "Detección de Cambios en Infraestructura",
+      "descripcion": "Alertar sobre nuevos dispositivos en red",
+      "frecuencia": "Cada 1 hora",
+      "complejidad": "Alta"
+    },
+    {
+      "id": 14,
+      "nombre": "Generación de Reportes de Seguridad",
+      "descripcion": "Reportes diarios/semanales de eventos",
+      "frecuencia": "Diaria/Semanal",
+      "complejidad": "Media"
+    },
+    {
+      "id": 15,
+      "nombre": "Automatización de Onboarding y Offboarding",
+      "descripcion": "Crear/eliminar cuentas, accesos, carpetas",
+      "frecuencia": "Bajo demanda",
+      "complejidad": "Muy Alta"
+    }
+  ],
+  "arquitectura": {
+    "componentes": {
+      "n8n": {
+        "rol": "Orquestador central",
+        "puerto": 5678,
+        "protocolo": "HTTPS",
+        "autenticacion": "Usuario/Contraseña + MFA (opcional)"
+      },
+      "Wazuh": {
+        "rol": "SIEM - Recolección de eventos",
+        "puerto": 55000,
+        "protocolo": "HTTPS",
+        "autenticacion": "API Key"
+      },
+      "AD 2019": {
+        "rol": "Directorio de identidades",
+        "puerto": "389/636 (LDAP/LDAPS), 3268/3269 (GC)",
+        "protocolo": "LDAP/LDAPS",
+        "autenticacion": "Credenciales de dominio"
+      },
+      "Exchange 2019": {
+        "rol": "SMTP para notificaciones",
+        "puerto": "25, 587 (TLS), 465 (SSL)",
+        "protocolo": "SMTP",
+        "autenticacion": "Credenciales de cuenta de servicio"
+      }
+    },
+    "flujo_datos": "Wazuh/AD -> n8n -> Validación -> Acción (Email/Ticket/Isolate)"
+  },
+  "mejores_practicas": {
+    "seguridad": [
+      "Usar cuentas de servicio dedicadas con permisos mínimos (PoLP)",
+      "Almacenar credenciales en variables de entorno",
+      "HTTPS/TLS obligatorio",
+      "Auditar todos los cambios",
+      "Rotar credenciales cada 90 días",
+      "MFA donde sea posible",
+      "Encriptación en tránsito y en reposo",
+      "Firewall con reglas restrictivas"
+    ],
+    "confiabilidad": [
+      "Reintentos exponenciales (3 intentos)",
+      "Timeouts apropiados (30s-5min)",
+      "Logging completo de errores",
+      "Escalamiento manual para fallos críticos",
+      "Backups diarios",
+      "Documentación actualizada",
+      "Testing en staging",
+      "Health check cada 5 minutos"
+    ],
+    "rendimiento": [
+      "No ejecutar > cada 1 minuto",
+      "Usar filtros en Wazuh",
+      "Implementar caché",
+      "Monitorear CPU/RAM",
+      "Escalar horizontalmente si es necesario",
+      "Webhooks en lugar de polling",
+      "Limitar tamaño de resultados"
+    ]
+  }
+}
