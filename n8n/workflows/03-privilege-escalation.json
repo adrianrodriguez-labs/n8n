@@ -1,0 +1,179 @@
+{
+  "name": "03 - Deteccion Escalacion Privilegios",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "id": "c1111111-1111-1111-1111-111111111111",
+      "name": "Schedule 15m",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const grupos = ['Domain Admins','Enterprise Admins','Schema Admins','Administrators','Account Operators','Backup Operators','DNSAdmins'];\nreturn grupos.map(g => ({ json: { grupo: g } }));"
+      },
+      "id": "c2222222-2222-2222-2222-222222222222",
+      "name": "Grupos Admin",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "resource": "command",
+        "command": "=powershell -Command \"Get-ADGroupMember -Identity '{{ $json.grupo }}' -Recursive | Select-Object Name,SamAccountName | ConvertTo-Json -Compress\""
+      },
+      "id": "c3333333-3333-3333-3333-333333333333",
+      "name": "Miembros Actuales",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [680, 300],
+      "credentials": {
+        "sshPassword": {
+          "id": "ad-winrm",
+          "name": "ad-winrm"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT sam FROM admin_group_snapshot WHERE grupo = '{{ $('Grupos Admin').item.json.grupo }}';",
+        "options": {}
+      },
+      "id": "c4444444-4444-4444-4444-444444444444",
+      "name": "Snapshot Previo",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [900, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-n8n",
+          "name": "postgres-n8n"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const grupo = $('Grupos Admin').item.json.grupo;\nlet actuales = [];\ntry { actuales = JSON.parse($('Miembros Actuales').item.json.stdout || '[]'); } catch(e) {}\nif (!Array.isArray(actuales)) actuales = [actuales];\nconst setActual = new Set(actuales.map(m => m.SamAccountName));\nconst previos = $input.all().map(i => i.json.sam);\nconst setPrevio = new Set(previos);\nconst nuevos = [...setActual].filter(x => !setPrevio.has(x));\nconst removidos = [...setPrevio].filter(x => !setActual.has(x));\nreturn [{ json: { grupo, nuevos, removidos, hayCambios: nuevos.length + removidos.length > 0 } }];"
+      },
+      "id": "c5555555-5555-5555-5555-555555555555",
+      "name": "Diff",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-1",
+              "leftValue": "={{ $json.hayCambios }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c6666666-6666-6666-6666-666666666666",
+      "name": "Hay Cambios?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "fromEmail": "noreply@empresa.com",
+        "toEmail": "secops@empresa.com",
+        "subject": "=[CRITICO] Cambio de privilegios en {{ $json.grupo }}",
+        "emailFormat": "html",
+        "html": "=<h2 style=\"color:#c00\">Cambio de membresia en grupo administrativo</h2><p><strong>Grupo:</strong> {{ $json.grupo }}</p><p><strong>Nuevos miembros:</strong> {{ $json.nuevos.join(', ') || '(ninguno)' }}</p><p><strong>Removidos:</strong> {{ $json.removidos.join(', ') || '(ninguno)' }}</p><p><strong>Hora:</strong> {{ $now }}</p><p>Revisar inmediatamente — posible escalacion no autorizada.</p>",
+        "options": {}
+      },
+      "id": "c7777777-7777-7777-7777-777777777777",
+      "name": "Email Critico",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1560, 220],
+      "credentials": {
+        "smtp": {
+          "id": "exchange-smtp",
+          "name": "exchange-smtp"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://ticketing.empresa.local/api/tickets",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "title", "value": "=Escalacion de privilegios en {{ $json.grupo }}" },
+            { "name": "severity", "value": "critical" },
+            { "name": "description", "value": "=Nuevos: {{ $json.nuevos.join(',') }} | Removidos: {{ $json.removidos.join(',') }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c8888888-8888-8888-8888-888888888888",
+      "name": "Crear Ticket",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1560, 380]
+    }
+  ],
+  "connections": {
+    "Schedule 15m": {
+      "main": [[{ "node": "Grupos Admin", "type": "main", "index": 0 }]]
+    },
+    "Grupos Admin": {
+      "main": [[{ "node": "Miembros Actuales", "type": "main", "index": 0 }]]
+    },
+    "Miembros Actuales": {
+      "main": [[{ "node": "Snapshot Previo", "type": "main", "index": 0 }]]
+    },
+    "Snapshot Previo": {
+      "main": [[{ "node": "Diff", "type": "main", "index": 0 }]]
+    },
+    "Diff": {
+      "main": [[{ "node": "Hay Cambios?", "type": "main", "index": 0 }]]
+    },
+    "Hay Cambios?": {
+      "main": [
+        [
+          { "node": "Email Critico", "type": "main", "index": 0 },
+          { "node": "Crear Ticket", "type": "main", "index": 0 }
+        ],
+        []
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

@@ -1,0 +1,122 @@
+{
+  "name": "02 - Deteccion Nuevos Usuarios AD",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 10
+            }
+          ]
+        }
+      },
+      "id": "b1111111-1111-1111-1111-111111111111",
+      "name": "Schedule 10m",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "resource": "command",
+        "command": "=powershell -Command \"$DaysBack=10; $fecha=(Get-Date).AddDays(-$DaysBack); $u = Get-ADUser -Filter {whenCreated -gt $fecha} -Properties whenCreated,EmailAddress,Department,Title,Manager,LastLogonDate -SearchBase 'DC=empresa,DC=local'; $r=@(); foreach($user in $u){ $mgr = if($user.Manager){(Get-ADUser -Identity $user.Manager -Properties DisplayName).DisplayName}else{'No asignado'}; $r += [PSCustomObject]@{Nombre=$user.Name;Email=$user.EmailAddress;Departamento=$user.Department;Puesto=$user.Title;Manager=$mgr;FechaCreacion=$user.whenCreated;UltimoLogin=$user.LastLogonDate} }; ConvertTo-Json -Compress -InputObject $r\""
+      },
+      "id": "b2222222-2222-2222-2222-222222222222",
+      "name": "Consultar AD",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [460, 300],
+      "credentials": {
+        "sshPassword": {
+          "id": "ad-winrm",
+          "name": "ad-winrm"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const stdout = $input.first().json.stdout || '[]';\nlet users = [];\ntry { users = JSON.parse(stdout); } catch(e) { users = []; }\nif (!Array.isArray(users)) users = [users];\nreturn users.length ? [{ json: { usuarios: users, count: users.length } }] : [];"
+      },
+      "id": "b3333333-3333-3333-3333-333333333333",
+      "name": "Parse Usuarios",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "fromEmail": "noreply@empresa.com",
+        "toEmail": "admin@empresa.com",
+        "subject": "=[AD] {{ $json.count }} nuevos usuarios detectados",
+        "emailFormat": "html",
+        "html": "=<!DOCTYPE html><html><head><style>body{font-family:Arial,sans-serif}table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#4472C4;color:#fff}tr:nth-child(even){background:#f2f2f2}</style></head><body><h2>Nuevos Usuarios Creados en AD</h2><p>Se han detectado {{ $json.count }} nuevas cuentas.</p><table><tr><th>Nombre</th><th>Email</th><th>Departamento</th><th>Manager</th><th>Fecha</th></tr>{{ $json.usuarios.map(u => `<tr><td>${u.Nombre||''}</td><td>${u.Email||''}</td><td>${u.Departamento||''}</td><td>${u.Manager||''}</td><td>${u.FechaCreacion||''}</td></tr>`).join('') }}</table><p><strong>Acciones:</strong></p><ul><li>Verificar departamento y permisos</li><li>Validar creacion de buzon si aplica</li></ul></body></html>",
+        "options": {}
+      },
+      "id": "b4444444-4444-4444-4444-444444444444",
+      "name": "Email HTML",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [900, 220],
+      "credentials": {
+        "smtp": {
+          "id": "exchange-smtp",
+          "name": "exchange-smtp"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "user_creations"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "payload": "={{ JSON.stringify($json.usuarios) }}",
+            "count": "={{ $json.count }}",
+            "detected_at": "={{ $now }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "b5555555-5555-5555-5555-555555555555",
+      "name": "Auditoria Postgres",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [900, 380],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-n8n",
+          "name": "postgres-n8n"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule 10m": {
+      "main": [[{ "node": "Consultar AD", "type": "main", "index": 0 }]]
+    },
+    "Consultar AD": {
+      "main": [[{ "node": "Parse Usuarios", "type": "main", "index": 0 }]]
+    },
+    "Parse Usuarios": {
+      "main": [[
+        { "node": "Email HTML", "type": "main", "index": 0 },
+        { "node": "Auditoria Postgres", "type": "main", "index": 0 }
+      ]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

@@ -1,0 +1,202 @@
+{
+  "name": "04 - Deteccion Instalacion Software",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "wazuh-software-install",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "d1111111-1111-1111-1111-111111111111",
+      "name": "Webhook Wazuh",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [200, 300],
+      "webhookId": "wazuh-software-install"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\nreturn [{ json: {\n  hostname: body.agent?.name || body.hostname || 'unknown',\n  user: body.data?.win?.eventdata?.subjectUserName || body.user || 'unknown',\n  filename: body.data?.win?.eventdata?.fileName || body.filename || '',\n  file_path: body.data?.win?.eventdata?.filePath || body.path || '',\n  file_hash: body.syscheck?.sha256_after || body.hash || '',\n  rule_id: body.rule?.id || '',\n  raw: body\n} }];"
+      },
+      "id": "d2222222-2222-2222-2222-222222222222",
+      "name": "Extraer Info",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [420, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT hash FROM software_whitelist WHERE hash = '{{ $json.file_hash }}' OR filename = '{{ $json.filename }}';",
+        "options": {}
+      },
+      "id": "d3333333-3333-3333-3333-333333333333",
+      "name": "Check Whitelist",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [640, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-n8n",
+          "name": "postgres-n8n"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-1",
+              "leftValue": "={{ $input.all().length }}",
+              "rightValue": 0,
+              "operator": { "type": "number", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d4444444-4444-4444-4444-444444444444",
+      "name": "No Autorizado?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [860, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://www.virustotal.com/api/v3/files/{{ $('Extraer Info').item.json.file_hash }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "d5555555-5555-5555-5555-555555555555",
+      "name": "VirusTotal",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1080, 220],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "virustotal",
+          "name": "virustotal"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-1",
+              "leftValue": "={{ $json.data?.attributes?.last_analysis_stats?.malicious || 0 }}",
+              "rightValue": 5,
+              "operator": { "type": "number", "operation": "gt" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d6666666-6666-6666-6666-666666666666",
+      "name": "Malicioso?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1300, 220]
+    },
+    {
+      "parameters": {
+        "fromEmail": "noreply@empresa.com",
+        "toEmail": "secops@empresa.com",
+        "subject": "=[MALWARE] Instalacion sospechosa en {{ $('Extraer Info').item.json.hostname }}",
+        "emailFormat": "html",
+        "html": "=<h2 style=\"color:#c00\">Software malicioso detectado</h2><ul><li><strong>Host:</strong> {{ $('Extraer Info').item.json.hostname }}</li><li><strong>Usuario:</strong> {{ $('Extraer Info').item.json.user }}</li><li><strong>Archivo:</strong> {{ $('Extraer Info').item.json.filename }}</li><li><strong>Hash:</strong> {{ $('Extraer Info').item.json.file_hash }}</li><li><strong>VT detecciones:</strong> {{ $json.data.attributes.last_analysis_stats.malicious }}</li></ul>",
+        "options": {}
+      },
+      "id": "d7777777-7777-7777-7777-777777777777",
+      "name": "Email Malware",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1520, 140],
+      "credentials": {
+        "smtp": {
+          "id": "exchange-smtp",
+          "name": "exchange-smtp"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://wazuh.empresa.local:55000/active-response",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "command", "value": "firewall-drop0" },
+            { "name": "agents_list", "value": "={{ $('Extraer Info').item.json.hostname }}" }
+          ]
+        },
+        "options": {
+          "allowUnauthorizedCerts": true
+        }
+      },
+      "id": "d8888888-8888-8888-8888-888888888888",
+      "name": "Aislar Host",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1520, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "wazuh-api",
+          "name": "wazuh-api"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Wazuh": {
+      "main": [[{ "node": "Extraer Info", "type": "main", "index": 0 }]]
+    },
+    "Extraer Info": {
+      "main": [[{ "node": "Check Whitelist", "type": "main", "index": 0 }]]
+    },
+    "Check Whitelist": {
+      "main": [[{ "node": "No Autorizado?", "type": "main", "index": 0 }]]
+    },
+    "No Autorizado?": {
+      "main": [
+        [{ "node": "VirusTotal", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "VirusTotal": {
+      "main": [[{ "node": "Malicioso?", "type": "main", "index": 0 }]]
+    },
+    "Malicioso?": {
+      "main": [
+        [
+          { "node": "Email Malware", "type": "main", "index": 0 },
+          { "node": "Aislar Host", "type": "main", "index": 0 }
+        ],
+        []
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
